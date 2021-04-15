@@ -66,4 +66,6 @@ type IConfigClient interface {
 	SearchConfig(param vo.SearchConfigParm) (*model.ConfigPage, error)
 
 	PublishAggr(param vo.ConfigParam) (published bool, err error)
+
+	Decrypt(dataId, encryptedDataKey, content string) (string, error)
 }

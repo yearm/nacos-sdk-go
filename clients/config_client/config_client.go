@@ -17,6 +17,7 @@
 package config_client
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math"
@@ -63,6 +64,7 @@ type cacheData struct {
 	dataId            string
 	group             string
 	content           string
+	encryptedDataKey  string
 	tenant            string
 	cacheDataListener *cacheDataListener
 	md5               string
@@ -138,27 +140,56 @@ func (client *ConfigClient) sync() (clientConfig constant.ClientConfig,
 }
 
 func (client *ConfigClient) GetConfig(param vo.ConfigParam) (content string, err error) {
-	content, err = client.getConfigInner(param)
+	var encryptedDataKey string
+	content, encryptedDataKey, err = client.getConfigInner(param)
 
 	if err != nil {
 		return "", err
 	}
 
-	return client.decrypt(param.DataId, content)
+	return client.decrypt(param.DataId, encryptedDataKey, content)
 }
 
-func (client *ConfigClient) decrypt(dataId, content string) (string, error) {
+func (client *ConfigClient) Decrypt(dataId, encryptedDataKey, content string) (string, error) {
+	return client.decrypt(dataId, encryptedDataKey, content)
+}
+
+func (client *ConfigClient) decrypt(dataId, encryptedDataKey, content string) (string, error) {
 	if client.kmsClient != nil && strings.HasPrefix(dataId, "cipher-") {
-		request := kms.CreateDecryptRequest()
-		request.Method = "POST"
-		request.Scheme = "https"
-		request.AcceptFormat = "json"
-		request.CiphertextBlob = content
-		response, err := client.kmsClient.Decrypt(request)
-		if err != nil {
-			return "", fmt.Errorf("kms decrypt failed: %v", err)
+		if encryptedDataKey != "" { // KMS-128
+			request := kms.CreateDecryptRequest()
+			request.Scheme = "https"
+			request.CiphertextBlob = encryptedDataKey
+			response, err := client.kmsClient.Decrypt(request)
+			if err != nil {
+				return "", fmt.Errorf("kms decrypt failed: %v", err)
+			}
+			aesKey := response.Plaintext
+			aesKeyByte, err := base64.StdEncoding.DecodeString(aesKey)
+			if err != nil {
+				return "", fmt.Errorf("kms aesKey base64 decode failed: %v", err)
+			}
+			contentByte, err := base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				return "", fmt.Errorf("kms content base64 decode failed: %v", err)
+			}
+			plaintext, err := util.ECBDecrypt(contentByte, aesKeyByte)
+			if err != nil {
+				return "", fmt.Errorf("kms content ECBDecrypt failed: %v", err)
+			}
+			content = string(plaintext)
+		} else { // KMS
+			request := kms.CreateDecryptRequest()
+			request.Method = "POST"
+			request.Scheme = "https"
+			request.AcceptFormat = "json"
+			request.CiphertextBlob = content
+			response, err := client.kmsClient.Decrypt(request)
+			if err != nil {
+				return "", fmt.Errorf("kms decrypt failed: %v", err)
+			}
+			content = response.Plaintext
 		}
-		content = response.Plaintext
 	}
 	return content, nil
 }
@@ -180,41 +211,40 @@ func (client *ConfigClient) encrypt(dataId, content string) (string, error) {
 	return content, nil
 }
 
-func (client *ConfigClient) getConfigInner(param vo.ConfigParam) (content string, err error) {
+func (client *ConfigClient) getConfigInner(param vo.ConfigParam) (content string, encryptedDataKey string, err error) {
 	if len(param.DataId) <= 0 {
 		err = errors.New("[client.GetConfig] param.dataId can not be empty")
-		return "", err
+		return "", "", err
 	}
 	if len(param.Group) <= 0 {
 		err = errors.New("[client.GetConfig] param.group can not be empty")
-		return "", err
+		return "", "", err
 	}
 	clientConfig, _ := client.GetClientConfig()
 	cacheKey := util.GetConfigCacheKey(param.DataId, param.Group, clientConfig.NamespaceId)
-	content, err = client.configProxy.GetConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
-
+	content, encryptedDataKey, err = client.configProxy.GetConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
 	if err != nil {
 		logger.Infof("get config from server error:%+v ", err)
 		if _, ok := err.(*nacos_error.NacosError); ok {
 			nacosErr := err.(*nacos_error.NacosError)
 			if nacosErr.ErrorCode() == "404" {
-				cache.WriteConfigToFile(cacheKey, client.configCacheDir, "")
-				return "", errors.New("config not found")
+				cache.WriteConfigToFile(cacheKey, client.configCacheDir, "", "")
+				return "", "", errors.New("config not found")
 			}
 			if nacosErr.ErrorCode() == "403" {
-				return "", errors.New("get config forbidden")
+				return "", "", errors.New("get config forbidden")
 			}
 		}
-		content, err = cache.ReadConfigFromFile(cacheKey, client.configCacheDir)
+		content, encryptedDataKey, err = cache.ReadConfigFromFile(cacheKey, client.configCacheDir)
 		if err != nil {
 			logger.Errorf("get config from cache  error:%+v ", err)
-			return "", errors.New("read config from both server and cache fail")
+			return "", "", errors.New("read config from both server and cache fail")
 		}
 
 	} else {
-		cache.WriteConfigToFile(cacheKey, client.configCacheDir, content)
+		cache.WriteConfigToFile(cacheKey, client.configCacheDir, content, encryptedDataKey)
 	}
-	return content, nil
+	return content, encryptedDataKey, nil
 }
 
 func (client *ConfigClient) PublishConfig(param vo.ConfigParam) (published bool,
@@ -304,11 +334,8 @@ func (client *ConfigClient) ListenConfig(param vo.ConfigParam) (err error) {
 		cData = v.(cacheData)
 		cData.isInitializing = true
 	} else {
-		var (
-			content string
-			md5Str  string
-		)
-		content, fileErr := cache.ReadConfigFromFile(key, client.configCacheDir)
+		var md5Str string
+		content, encryptedDataKey, fileErr := cache.ReadConfigFromFile(key, client.configCacheDir)
 		if fileErr != nil {
 			logger.Errorf("[cache.ReadConfigFromFile] error: %+v", fileErr)
 		}
@@ -326,6 +353,7 @@ func (client *ConfigClient) ListenConfig(param vo.ConfigParam) (err error) {
 			group:             param.Group,
 			tenant:            clientConfig.NamespaceId,
 			content:           content,
+			encryptedDataKey:  encryptedDataKey,
 			md5:               md5Str,
 			cacheDataListener: listener,
 			taskId:            cacheMap.Count() / perTaskConfigSize,
@@ -449,7 +477,7 @@ func (client *ConfigClient) callListener(changed, tenant string) {
 		if len(attrs) >= 2 {
 			if value, ok := cacheMap.Get(util.GetConfigCacheKey(attrs[0], attrs[1], tenant)); ok {
 				cData := value.(cacheData)
-				content, err := client.getConfigInner(vo.ConfigParam{
+				content, encryptedDataKey, err := client.getConfigInner(vo.ConfigParam{
 					DataId: cData.dataId,
 					Group:  cData.group,
 				})
@@ -458,9 +486,10 @@ func (client *ConfigClient) callListener(changed, tenant string) {
 					continue
 				}
 				cData.content = content
+				cData.encryptedDataKey = encryptedDataKey
 				cData.md5 = util.Md5(content)
 				if cData.md5 != cData.cacheDataListener.lastMd5 {
-					go cData.cacheDataListener.listener(tenant, attrs[1], attrs[0], cData.content)
+					go cData.cacheDataListener.listener(tenant, attrs[1], attrs[0], cData.content, cData.encryptedDataKey)
 					cData.cacheDataListener.lastMd5 = cData.md5
 					cacheMap.Set(util.GetConfigCacheKey(cData.dataId, cData.group, tenant), cData)
 				}

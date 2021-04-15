@@ -83,20 +83,24 @@ func ReadServicesFromFile(cacheDir string) map[string]model.Service {
 	return serviceMap
 }
 
-func WriteConfigToFile(cacheKey string, cacheDir string, content string) {
+func WriteConfigToFile(cacheKey string, cacheDir string, content string, encryptedDataKey string) {
 	file.MkdirIfNecessary(cacheDir)
 	fileName := GetFileName(cacheKey, cacheDir)
-	err := ioutil.WriteFile(fileName, []byte(content), 0666)
+	err := ioutil.WriteFile(fileName, []byte(content+"\n"+encryptedDataKey), 0666)
 	if err != nil {
 		logger.Errorf("failed to write config  cache:%s ,value:%s ,err:%+v", fileName, content, err)
 	}
 }
 
-func ReadConfigFromFile(cacheKey string, cacheDir string) (string, error) {
+func ReadConfigFromFile(cacheKey string, cacheDir string) (string, string, error) {
 	fileName := GetFileName(cacheKey, cacheDir)
 	b, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		return "", errors.New(fmt.Sprintf("failed to read config cache file:%s,err:%+v ", fileName, err))
+		return "", "", errors.New(fmt.Sprintf("failed to read config cache file:%s,err:%+v ", fileName, err))
 	}
-	return string(b), nil
+	strArr := strings.Split(string(b), "\n")
+	if len(strArr) != 2 {
+		return "", "", errors.New(fmt.Sprintf("config cache file:%s err", fileName))
+	}
+	return strArr[0], strArr[1], nil
 }

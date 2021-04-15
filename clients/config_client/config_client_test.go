@@ -423,7 +423,7 @@ func TestListen(t *testing.T) {
 	t.Run("TestListenConfig", func(t *testing.T) {
 		client := createConfigClientTest()
 		key := util.GetConfigCacheKey(localConfigTest.DataId, localConfigTest.Group, clientConfigTest.NamespaceId)
-		cache.WriteConfigToFile(key, client.configCacheDir, "")
+		cache.WriteConfigToFile(key, client.configCacheDir, "", "")
 		var err error
 		var success bool
 		ch := make(chan string)
@@ -431,8 +431,8 @@ func TestListen(t *testing.T) {
 			err = client.ListenConfig(vo.ConfigParam{
 				DataId: localConfigTest.DataId,
 				Group:  localConfigTest.Group,
-				OnChange: func(namespace, group, dataId, data string) {
-					fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
+				OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+					fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 					ch <- data
 				},
 			})
@@ -460,7 +460,7 @@ func TestListen(t *testing.T) {
 	t.Run("TestListenConfigNoDataId", func(t *testing.T) {
 		listenConfigParam := vo.ConfigParam{
 			Group: "gateway",
-			OnChange: func(namespace, group, dataId, data string) {
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
 			},
 		}
 		client := createConfigClientTest()
@@ -471,7 +471,8 @@ func TestListen(t *testing.T) {
 	t.Run("TestListenConfigNoChange", func(t *testing.T) {
 		client := createConfigClientTest()
 		key := util.GetConfigCacheKey(configNoChangeKey, localConfigTest.Group, clientConfigTest.NamespaceId)
-		cache.WriteConfigToFile(key, client.configCacheDir, localConfigTest.Content)
+		// TEST: encryptedDataKey
+		cache.WriteConfigToFile(key, client.configCacheDir, localConfigTest.Content, "")
 		var err error
 		var success bool
 		var content string
@@ -480,7 +481,7 @@ func TestListen(t *testing.T) {
 			err = client.ListenConfig(vo.ConfigParam{
 				DataId: configNoChangeKey,
 				Group:  localConfigTest.Group,
-				OnChange: func(namespace, group, dataId, data string) {
+				OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
 					content = "data"
 				},
 			})
@@ -504,14 +505,14 @@ func TestListen(t *testing.T) {
 		listenConfigParam := vo.ConfigParam{
 			DataId: multipleClientsKey,
 			Group:  localConfigTest.Group,
-			OnChange: func(namespace, group, dataId, data string) {
-				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 				ch <- data
 			},
 		}
 		client := createConfigClientTest()
 		key := util.GetConfigCacheKey(listenConfigParam.DataId, listenConfigParam.Group, clientConfigTest.NamespaceId)
-		cache.WriteConfigToFile(key, client.configCacheDir, "")
+		cache.WriteConfigToFile(key, client.configCacheDir, "", "")
 		client.ListenConfig(listenConfigParam)
 
 		client1 := createConfigClientTest()
@@ -539,14 +540,14 @@ func TestListen(t *testing.T) {
 		listenConfigParam := vo.ConfigParam{
 			DataId: multipleClientsMultipleConfigsKey,
 			Group:  localConfigTest.Group,
-			OnChange: func(namespace, group, dataId, data string) {
-				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 				ch <- data
 			},
 		}
 		client := createConfigClientTest()
 		key := util.GetConfigCacheKey(listenConfigParam.DataId, listenConfigParam.Group, clientConfigTest.NamespaceId)
-		cache.WriteConfigToFile(key, client.configCacheDir, "")
+		cache.WriteConfigToFile(key, client.configCacheDir, "", "")
 		client.ListenConfig(listenConfigParam)
 
 		client1 := createConfigClientTest()
@@ -581,16 +582,16 @@ func TestCancelListenConfig(t *testing.T) {
 		listenConfigParam := vo.ConfigParam{
 			DataId: cancelOneKey,
 			Group:  "group",
-			OnChange: func(namespace, group, dataId, data string) {
-				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 			},
 		}
 
 		listenConfigParam1 := vo.ConfigParam{
 			DataId: cancelOne1Key,
 			Group:  "group1",
-			OnChange: func(namespace, group, dataId, data string) {
-				fmt.Println("group1:" + group + ", dataId1:" + dataId + ", data:" + data)
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+				fmt.Println("group1:" + group + ", dataId1:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 				context = data
 			},
 		}
@@ -635,12 +636,12 @@ func TestCancelListenConfig(t *testing.T) {
 		client := createConfigClientTest()
 		//
 		key := util.GetConfigCacheKey(localConfigTest.DataId, localConfigTest.Group, clientConfigTest.NamespaceId)
-		cache.WriteConfigToFile(key, client.configCacheDir, "")
+		cache.WriteConfigToFile(key, client.configCacheDir, "", "")
 		listenConfigParam := vo.ConfigParam{
 			DataId: cancelListenConfigKey,
 			Group:  localConfigTest.Group,
-			OnChange: func(namespace, group, dataId, data string) {
-				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
+			OnChange: func(namespace, group, dataId, data, encryptedDataKey string) {
+				fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data + ", encryptedDataKey:" + encryptedDataKey)
 				context = data
 				ch <- data
 			},

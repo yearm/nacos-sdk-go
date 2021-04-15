@@ -80,7 +80,7 @@ func NewNacosServer(serverList []constant.ServerConfig, clientCfg constant.Clien
 }
 
 func (server *NacosServer) callConfigServer(api string, params map[string]string, newHeaders map[string]string,
-	method string, curServer string, contextPath string, timeoutMS uint64) (result string, err error) {
+	method string, curServer string, contextPath string, timeoutMS uint64) (result string, encryptedDataKey string, err error) {
 	if contextPath == "" {
 		contextPath = constant.WEB_CONTEXT
 	}
@@ -124,6 +124,7 @@ func (server *NacosServer) callConfigServer(api string, params map[string]string
 		return
 	}
 	result = string(bytes)
+	encryptedDataKey = response.Header.Get("Encrypted-Data-Key") // 请求KMS-128加密配置会有该请求头
 	if response.StatusCode == 200 {
 		return
 	} else {
@@ -174,10 +175,10 @@ func (server *NacosServer) callServer(api string, params map[string]string, meth
 	}
 }
 
-func (server *NacosServer) ReqConfigApi(api string, params map[string]string, headers map[string]string, method string, timeoutMS uint64) (string, error) {
+func (server *NacosServer) ReqConfigApi(api string, params map[string]string, headers map[string]string, method string, timeoutMS uint64) (string, string, error) {
 	srvs := server.serverList
 	if srvs == nil || len(srvs) == 0 {
-		return "", errors.New("server list is empty")
+		return "", "", errors.New("server list is empty")
 	}
 
 	injectSecurityInfo(server, params)
@@ -185,27 +186,28 @@ func (server *NacosServer) ReqConfigApi(api string, params map[string]string, he
 	//only one server,retry request when error
 	var err error
 	var result string
+	var encryptedDataKey string
 	if len(srvs) == 1 {
 		for i := 0; i < constant.REQUEST_DOMAIN_RETRY_TIME; i++ {
-			result, err = server.callConfigServer(api, params, headers, method, getAddress(srvs[0]), srvs[0].ContextPath, timeoutMS)
+			result, encryptedDataKey, err = server.callConfigServer(api, params, headers, method, getAddress(srvs[0]), srvs[0].ContextPath, timeoutMS)
 			if err == nil {
-				return result, nil
+				return result, encryptedDataKey, nil
 			}
 			logger.Errorf("api<%s>,method:<%s>, params:<%s>, call domain error:<%+v> , result:<%s>", api, method, util.ToJsonString(params), err, result)
 		}
-		return "", err
+		return "", "", err
 	} else {
 		index := rand.Intn(len(srvs))
 		for i := 1; i <= len(srvs); i++ {
 			curServer := srvs[index]
-			result, err = server.callConfigServer(api, params, headers, method, getAddress(curServer), curServer.ContextPath, timeoutMS)
+			result, encryptedDataKey, err = server.callConfigServer(api, params, headers, method, getAddress(curServer), curServer.ContextPath, timeoutMS)
 			if err == nil {
-				return result, nil
+				return result, encryptedDataKey, nil
 			}
 			logger.Errorf("[ERROR] api<%s>,method:<%s>, params:<%s>, call domain error:<%+v> , result:<%s> \n", api, method, util.ToJsonString(params), err, result)
 			index = (index + i) % len(srvs)
 		}
-		return "", err
+		return "", "", err
 	}
 }
 
