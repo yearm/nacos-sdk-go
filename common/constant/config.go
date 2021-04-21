@@ -33,6 +33,7 @@ type ClientConfig struct {
 	RegionId             string //the regionId for kms
 	AccessKey            string //the AccessKey for kms
 	SecretKey            string //the SecretKey for kms
+	RamRoleName          string //the RamRoleName for kms
 	OpenKMS              bool   //it's to open kms,default is false. https://help.aliyun.com/product/28933.html
 	CacheDir             string //the directory for persist nacos service info,default value is current path
 	UpdateThreadNum      int    //the number of gorutine for update nacos service info,default value is 20

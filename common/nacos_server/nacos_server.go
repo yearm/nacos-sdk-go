@@ -91,7 +91,7 @@ func (server *NacosServer) callConfigServer(api string, params map[string]string
 
 	headers := map[string][]string{}
 	for k, v := range newHeaders {
-		if k != "accessKey" && k != "secretKey" {
+		if k != "accessKey" && k != "secretKey" && k != "stsToken" {
 			headers[k] = []string{v}
 		}
 	}
@@ -110,6 +110,9 @@ func (server *NacosServer) callConfigServer(api string, params map[string]string
 	headers["Spas-AccessKey"] = []string{newHeaders["accessKey"]}
 	headers["Timestamp"] = []string{signHeaders["timeStamp"]}
 	headers["Spas-Signature"] = []string{signHeaders["Spas-Signature"]}
+	if newHeaders["stsToken"] != "" {
+		headers["Spas-SecurityToken"] = []string{newHeaders["stsToken"]}
+	}
 	injectSecurityInfo(server, params)
 
 	var response *http.Response

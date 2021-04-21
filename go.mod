@@ -3,7 +3,7 @@ module github.com/nacos-group/nacos-sdk-go
 go 1.12
 
 require (
-	github.com/aliyun/alibaba-cloud-sdk-go v1.61.18
+	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1039
 	github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23
 	github.com/fastly/go-utils v0.0.0-20180712184237-d95a45783239 // indirect
 	github.com/go-errors/errors v1.0.1

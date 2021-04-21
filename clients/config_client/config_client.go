@@ -20,6 +20,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth/credentials"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth/signers"
 	"math"
 	"os"
 	"strconv"
@@ -110,7 +113,19 @@ func NewConfigClient(nc nacos_client.INacosClient) (ConfigClient, error) {
 	config.configCacheDir = clientConfig.CacheDir + string(os.PathSeparator) + "config"
 	config.configProxy, err = NewConfigProxy(serverConfig, clientConfig, httpAgent)
 	if clientConfig.OpenKMS {
-		kmsClient, err := kms.NewClientWithAccessKey(clientConfig.RegionId, clientConfig.AccessKey, clientConfig.SecretKey)
+		var (
+			kmsClient  = &kms.Client{}
+			credential auth.Credential
+			sdkConfig  = kmsClient.InitClientConfig()
+		)
+		if clientConfig.RamRoleName != "" {
+			credential = credentials.NewEcsRamRoleCredential(clientConfig.RamRoleName)
+		} else {
+			credential = credentials.NewAccessKeyCredential(clientConfig.AccessKey, clientConfig.SecretKey)
+		}
+		err = kmsClient.InitWithOptions(clientConfig.RegionId, sdkConfig, credential)
+		kms.SetEndpointDataToClient(kmsClient)
+
 		if err != nil {
 			return config, err
 		}
@@ -211,6 +226,31 @@ func (client *ConfigClient) encrypt(dataId, content string) (string, error) {
 	return content, nil
 }
 
+func (client *ConfigClient) getSecurityHeaders(clientConfig constant.ClientConfig) (headers map[string]string) {
+	headers = make(map[string]string)
+	if clientConfig.RamRoleName != "" {
+		var accessKey, secretKey string
+		accessKey, _ = client.kmsClient.GetSigner().GetAccessKeyId()
+		if _ecsRamRoleSigner, ok := client.kmsClient.GetSigner().(*signers.EcsRamRoleSigner); ok {
+			if _ecsRamRoleSigner.GetSessionCredential() != nil {
+				secretKey = _ecsRamRoleSigner.GetSessionCredential().AccessKeySecret
+			}
+		}
+		stsToken := client.kmsClient.GetSigner().GetExtraParam()["SecurityToken"]
+		if accessKey != "" && secretKey != "" && stsToken != "" {
+			headers["accessKey"] = accessKey
+			headers["secretKey"] = secretKey
+			headers["stsToken"] = stsToken
+		} else {
+			logger.Warnf("[client.getSecurityHeaders] from RamRoleName error, accessKey: %s, secretKey: %s, stsToken: %s", accessKey, secretKey, stsToken)
+		}
+	} else {
+		headers["accessKey"] = clientConfig.AccessKey
+		headers["secretKey"] = clientConfig.SecretKey
+	}
+	return
+}
+
 func (client *ConfigClient) getConfigInner(param vo.ConfigParam) (content string, encryptedDataKey string, err error) {
 	if len(param.DataId) <= 0 {
 		err = errors.New("[client.GetConfig] param.dataId can not be empty")
@@ -222,7 +262,7 @@ func (client *ConfigClient) getConfigInner(param vo.ConfigParam) (content string
 	}
 	clientConfig, _ := client.GetClientConfig()
 	cacheKey := util.GetConfigCacheKey(param.DataId, param.Group, clientConfig.NamespaceId)
-	content, encryptedDataKey, err = client.configProxy.GetConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	content, encryptedDataKey, err = client.configProxy.GetConfigProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 	if err != nil {
 		logger.Infof("get config from server error:%+v ", err)
 		if _, ok := err.(*nacos_error.NacosError); ok {
@@ -230,7 +270,7 @@ func (client *ConfigClient) getConfigInner(param vo.ConfigParam) (content string
 			if nacosErr.ErrorCode() == "404" {
 				cache.WriteConfigToFile(cacheKey, client.configCacheDir, "", "")
 				logger.Warnf("[client.GetConfig] config not found, dataId: %s, group: %s, namespaceId: %s.", param.DataId, param.Group, clientConfig.NamespaceId)
-				return "", "",nil
+				return "", "", nil
 			}
 			if nacosErr.ErrorCode() == "403" {
 				return "", "", errors.New("get config forbidden")
@@ -265,7 +305,7 @@ func (client *ConfigClient) PublishConfig(param vo.ConfigParam) (published bool,
 		return false, err
 	}
 	clientConfig, _ := client.GetClientConfig()
-	return client.configProxy.PublishConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	return client.configProxy.PublishConfigProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 }
 
 func (client *ConfigClient) DeleteConfig(param vo.ConfigParam) (deleted bool, err error) {
@@ -277,7 +317,7 @@ func (client *ConfigClient) DeleteConfig(param vo.ConfigParam) (deleted bool, er
 	}
 
 	clientConfig, _ := client.GetClientConfig()
-	return client.configProxy.DeleteConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	return client.configProxy.DeleteConfigProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 }
 
 //Cancel Listen Config
@@ -443,7 +483,7 @@ func longPulling(taskId int) func() error {
 			params[constant.KEY_LISTEN_CONFIGS] = listeningConfigs
 
 			var changed string
-			changedTmp, err := client.configProxy.ListenConfig(params, len(initializationList) > 0, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+			changedTmp, err := client.configProxy.ListenConfig(params, len(initializationList) > 0, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 			if err == nil {
 				changed = changedTmp
 			} else {
@@ -524,7 +564,7 @@ func (client *ConfigClient) PublishAggr(param vo.ConfigParam) (published bool,
 		err = errors.New("[client.PublishAggr] param.DatumId can not be empty")
 	}
 	clientConfig, _ := client.GetClientConfig()
-	return client.configProxy.PublishAggProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	return client.configProxy.PublishAggProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 }
 
 func (client *ConfigClient) RemoveAggr(param vo.ConfigParam) (published bool,
@@ -542,7 +582,7 @@ func (client *ConfigClient) RemoveAggr(param vo.ConfigParam) (published bool,
 		err = errors.New("[client.DeleteAggr] param.DatumId can not be empty")
 	}
 	clientConfig, _ := client.GetClientConfig()
-	return client.configProxy.DeleteAggProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	return client.configProxy.DeleteAggProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 }
 
 func (client *ConfigClient) searchConfigInner(param vo.SearchConfigParm) (*model.ConfigPage, error) {
@@ -556,7 +596,7 @@ func (client *ConfigClient) searchConfigInner(param vo.SearchConfigParm) (*model
 		param.PageSize = 10
 	}
 	clientConfig, _ := client.GetClientConfig()
-	configItems, err := client.configProxy.SearchConfigProxy(param, clientConfig.NamespaceId, clientConfig.AccessKey, clientConfig.SecretKey)
+	configItems, err := client.configProxy.SearchConfigProxy(param, clientConfig.NamespaceId, client.getSecurityHeaders(clientConfig))
 	if err != nil {
 		logger.Errorf("search config from server error:%+v ", err)
 		if _, ok := err.(*nacos_error.NacosError); ok {

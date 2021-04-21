@@ -50,21 +50,16 @@ func (cp *ConfigProxy) GetServerList() []constant.ServerConfig {
 	return cp.nacosServer.GetServerList()
 }
 
-func (cp *ConfigProxy) GetConfigProxy(param vo.ConfigParam, tenant, accessKey, secretKey string) (string, string, error) {
+func (cp *ConfigProxy) GetConfigProxy(param vo.ConfigParam, tenant string, headers map[string]string) (string, string, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
-
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
-
 	result, encryptedDataKey, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_PATH, params, headers, http.MethodGet, cp.clientConfig.TimeoutMs)
 	return result, encryptedDataKey, err
 }
 
-func (cp *ConfigProxy) SearchConfigProxy(param vo.SearchConfigParm, tenant, accessKey, secretKey string) (*model.ConfigPage, error) {
+func (cp *ConfigProxy) SearchConfigProxy(param vo.SearchConfigParm, tenant string, headers map[string]string) (*model.ConfigPage, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
@@ -75,9 +70,6 @@ func (cp *ConfigProxy) SearchConfigProxy(param vo.SearchConfigParm, tenant, acce
 	if _, ok := params["dataId"]; !ok {
 		params["dataId"] = ""
 	}
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
 	result, _, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_PATH, params, headers, http.MethodGet, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return nil, err
@@ -89,15 +81,12 @@ func (cp *ConfigProxy) SearchConfigProxy(param vo.SearchConfigParm, tenant, acce
 	}
 	return &configPage, nil
 }
-func (cp *ConfigProxy) PublishConfigProxy(param vo.ConfigParam, tenant, accessKey, secretKey string) (bool, error) {
+
+func (cp *ConfigProxy) PublishConfigProxy(param vo.ConfigParam, tenant string, headers map[string]string) (bool, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
-
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
 	result, _, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_PATH, params, headers, http.MethodPost, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return false, errors.New("[client.PublishConfig] publish config failed:" + err.Error())
@@ -109,15 +98,12 @@ func (cp *ConfigProxy) PublishConfigProxy(param vo.ConfigParam, tenant, accessKe
 	}
 }
 
-func (cp *ConfigProxy) PublishAggProxy(param vo.ConfigParam, tenant, accessKey, secretKey string) (bool, error) {
+func (cp *ConfigProxy) PublishAggProxy(param vo.ConfigParam, tenant string, headers map[string]string) (bool, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
 	params["method"] = "addDatum"
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
 	_, _, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_AGG_PATH, params, headers, http.MethodPost, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return false, errors.New("[client.PublishAggProxy] publish agg failed:" + err.Error())
@@ -125,15 +111,12 @@ func (cp *ConfigProxy) PublishAggProxy(param vo.ConfigParam, tenant, accessKey, 
 	return true, nil
 }
 
-func (cp *ConfigProxy) DeleteAggProxy(param vo.ConfigParam, tenant, accessKey, secretKey string) (bool, error) {
+func (cp *ConfigProxy) DeleteAggProxy(param vo.ConfigParam, tenant string, headers map[string]string) (bool, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
 	params["method"] = "deleteDatum"
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
 	_, _, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_AGG_PATH, params, headers, http.MethodPost, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return false, errors.New("[client.DeleteAggProxy] delete agg failed:" + err.Error())
@@ -141,14 +124,11 @@ func (cp *ConfigProxy) DeleteAggProxy(param vo.ConfigParam, tenant, accessKey, s
 	return true, nil
 }
 
-func (cp *ConfigProxy) DeleteConfigProxy(param vo.ConfigParam, tenant, accessKey, secretKey string) (bool, error) {
+func (cp *ConfigProxy) DeleteConfigProxy(param vo.ConfigParam, tenant string, headers map[string]string) (bool, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
-	var headers = map[string]string{}
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
 	result, _, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_PATH, params, headers, http.MethodDelete, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return false, errors.New("[client.DeleteConfig] deleted config failed:" + err.Error())
@@ -160,20 +140,14 @@ func (cp *ConfigProxy) DeleteConfigProxy(param vo.ConfigParam, tenant, accessKey
 	}
 }
 
-func (cp *ConfigProxy) ListenConfig(params map[string]string, isInitializing bool, tenant, accessKey, secretKey string) (string, error) {
+func (cp *ConfigProxy) ListenConfig(params map[string]string, isInitializing bool, tenant string, headers map[string]string) (string, error) {
 	//fixed at 30000ms，avoid frequent request on the server
 	var listenInterval uint64 = 30000
-	headers := map[string]string{
-		"Content-Type":         "application/x-www-form-urlencoded;charset=utf-8",
-		"Long-Pulling-Timeout": strconv.FormatUint(listenInterval, 10),
-	}
+	headers["Content-Type"] = "application/x-www-form-urlencoded;charset=utf-8"
+	headers["Long-Pulling-Timeout"] = strconv.FormatUint(listenInterval, 10)
 	if isInitializing {
 		headers["Long-Pulling-Timeout-No-Hangup"] = "true"
 	}
-
-	headers["accessKey"] = accessKey
-	headers["secretKey"] = secretKey
-
 	if len(tenant) > 0 {
 		params["tenant"] = tenant
 	}
